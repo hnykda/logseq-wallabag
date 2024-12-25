@@ -4,21 +4,44 @@ interface WallabagTokenResponse {
   expires_in: number
 }
 
-interface WallabagArticle {
+export interface WallabagAnnotation {
+  id: number
+  text: string
+  quote: string
+  created_at: string
+  updated_at: string
+  ranges: {
+    start: string
+    startOffset: string
+    end: string
+    endOffset: string
+  }[]
+}
+
+export interface WallabagArticle {
   id: number
   title: string
   url: string
   content: string
   created_at: string    // Format: "2024-01-20T15:30:45+0100"
   updated_at: string    // Format: "2024-01-20T15:30:45+0100"
-  annotations: any[]
+  annotations: WallabagAnnotation[]
   tags: string[]
-  // Add fields needed for template rendering
-  date?: string        // We'll add this formatted field
-  currentDate?: string // And this one
+  domain_name?: string
+  preview_picture?: string
+  authors?: string[]
+  // Template rendering fields
+  date?: string
+  currentDate?: string
+  savedAt?: string
+  siteName?: string
+  originalArticleUrl?: string
+  author?: string
+  description?: string
+  labels?: string[]
 }
 
-interface WallabagResponse {
+export interface WallabagResponse {
   _embedded: {
     items: WallabagArticle[]
   }

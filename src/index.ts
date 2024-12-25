@@ -33,6 +33,8 @@ import {
   replaceIllegalChars,
 } from './util'
 import { WallabagClient } from './api/wallabag'
+import { Item } from '@omnivore-app/api'
+import { WallabagArticle, WallabagResponse, WallabagAnnotation } from './api/wallabag'
 
 const isValidCurrentGraph = async (): Promise<boolean> => {
   const settings = logseq.settings as Settings
@@ -596,7 +598,7 @@ const fetchArticles = async (inBackground = false) => {
 
     while (hasMore) {
       console.log(`Fetching page ${page}`)
-      const articles = await client.getArticles(page)
+      const articles = (await client.getArticles(page)) as WallabagResponse
 
       // Add date format logging after we have the articles
       if (page === 1 && articles._embedded.items.length > 0) {
@@ -618,11 +620,11 @@ const fetchArticles = async (inBackground = false) => {
       )
       totalArticles += articles._embedded.items.length
 
-      for (const article of articles._embedded.items) {
+      for (const article of articles._embedded.items as WallabagArticle[]) {
         if (!isSinglePage) {
           // create a new page for each article
           pageName = replaceIllegalChars(
-            renderPageName(article, pageNameTemplate, preferredDateFormat)
+            renderPageName(article as unknown as Item, pageNameTemplate, preferredDateFormat)
           )
           targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
         }
@@ -638,14 +640,28 @@ const fetchArticles = async (inBackground = false) => {
           ),
           savedAt: article.created_at,
           currentDate: DateTime.now().toFormat(preferredDateFormat),
-          // Add these fields to match Omnivore format
+          // Map Wallabag fields to Omnivore format
           siteName: article.domain_name || '',
           originalArticleUrl: article.url || '',
           author: article.authors?.join(', ') || 'unknown',
           description: article.preview_picture || '',
           labels: article.tags || [],
-          content: article.content || ''
-        }
+          content: article.content || '',
+          // Add required Omnivore fields with defaults
+          slug: '',
+          highlights: [],
+          updatedAt: article.updated_at,
+          pageType: 'article',
+          state: 'SUCCEEDED',
+          readingProgressPercent: 0,
+          readingProgressAnchorIndex: 0,
+          isArchived: false,
+          language: 'en',
+          subscription: null,
+          layout: 'article',
+          pageId: article.id.toString(),
+          shortId: article.id.toString(),
+        } as unknown as Item
 
         // render article using template with formatted dates
         const renderedItem = renderItem(
@@ -672,6 +688,22 @@ const fetchArticles = async (inBackground = false) => {
           })
         }
 
+        // Process annotations if they exist
+        if (article.annotations?.length > 0) {
+          const highlightsBlock: IBatchBlock = {
+            content: t('### Highlights'),
+            properties: {
+              collapsed: true,
+            },
+            children: article.annotations.map((annotation: WallabagAnnotation) => ({
+              content: `${annotation.quote}\n${
+                annotation.text ? `Note: ${annotation.text}` : ''
+              }`,
+            }))
+          }
+          children.push(highlightsBlock)
+        }
+
         // append new article block
         itemBatchBlocks.unshift({
           content: renderedItem,
@@ -681,8 +713,7 @@ const fetchArticles = async (inBackground = false) => {
             collapsed: true,
             site: article.domain_name || '',
             author: article.authors?.join(', ') || 'unknown',
-            'date-saved': `[[${DateTime.fromISO(article.created_at)
-              .toFormat('yyyy-MM-dd')}]]`
+            'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat('yyyy-MM-dd')}]]`,
           },
         })
 

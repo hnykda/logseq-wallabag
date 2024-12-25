@@ -59,9 +59,14 @@ const startSyncJob = () => {
 }
 
 const resetLoadingState = () => {
-  console.log('reset loading state')
+  console.log('resetLoadingState called')
   const settings = logseq.settings as Settings
-  settings.loading && logseq.updateSettings({ loading: false })
+  if (settings.loading) {
+    console.log('Loading was true, setting to false')
+    logseq.updateSettings({ loading: false })
+  } else {
+    console.log('Loading was already false')
+  }
 }
 
 const resetSyncJob = () => {
@@ -72,7 +77,9 @@ const resetSyncJob = () => {
 }
 
 const resetState = () => {
-  resetLoadingState()
+  console.log('resetState called - clearing all state')
+  // Force loading to false regardless of current state
+  logseq.updateSettings({ loading: false })
   resetSyncJob()
 }
 
@@ -504,66 +511,234 @@ const fetchOmnivore = async (inBackground = false) => {
 
 const fetchArticles = async (inBackground = false) => {
   const settings = logseq.settings as Settings
-  
+
+  console.log('Starting fetchArticles, settings state:', {
+    loading: settings.loading,
+    inBackground,
+    hasUrl: !!settings.wallabagUrl,
+    hasClientId: !!settings.clientId,
+    hasClientSecret: !!settings.clientSecret,
+    hasLogin: !!settings.userLogin,
+    hasPassword: !!settings.userPassword,
+  })
+
+  // prevent multiple fetches
   if (settings.loading) {
-    !inBackground && await logseq.UI.showMsg(t('Already syncing'), 'warning')
+    console.log('Loading state is true, preventing multiple fetches')
+    await logseq.UI.showMsg(t('Already syncing'), 'warning', {
+      timeout: 3000,
+    })
     return
   }
 
-  if (!settings.wallabagUrl || !settings.clientId || !settings.clientSecret || !settings.userLogin || !settings.userPassword) {
-    !inBackground && await logseq.UI.showMsg(t('Missing Wallabag credentials'), 'warning')
+  // Check credentials before setting loading state
+  if (
+    !settings.wallabagUrl ||
+    !settings.clientId ||
+    !settings.clientSecret ||
+    !settings.userLogin ||
+    !settings.userPassword
+  ) {
+    console.log('Missing credentials, aborting fetch')
+    await logseq.UI.showMsg(t('Missing Wallabag credentials'), 'warning', {
+      timeout: 3000,
+    })
     return
   }
 
-  logseq.updateSettings({ loading: true })
+  console.log('Setting loading state to true')
+  await logseq.updateSettings({ loading: true })
+
+  const {
+    syncAt,
+    pageName: pageNameTemplate,
+    articleTemplate,
+    highlightTemplate,
+    isSinglePage,
+    headingBlockTitle,
+    syncContent,
+  } = settings
+
+  const blockTitle = t(headingBlockTitle)
+  let targetBlockId = ''
+  let pageName = ''
+
+  // Initialize these before the try block
+  if (isSinglePage) {
+    pageName = pageNameTemplate
+    targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
+    !inBackground && logseq.App.pushState('page', { name: pageName })
+  }
 
   try {
+    console.log('Creating Wallabag client and checking credentials')
     const client = new WallabagClient(settings)
-    
-    // Verify credentials work
     const valid = await client.checkCredentials()
+
     if (!valid) {
+      console.error('Invalid credentials')
       throw new Error('Invalid Wallabag credentials')
     }
 
-    // Fetch articles
-    const articles = await client.getArticles()
-    
-    // TODO: Process articles similar to how Omnivore ones were processed
-    // For now just log them
-    console.log('Fetched articles:', articles)
+    // Get user date format preference
+    const userConfigs = await logseq.App.getUserConfigs()
+    const preferredDateFormat: string = userConfigs.preferredDateFormat
 
-    !inBackground && await logseq.UI.showMsg(t('Articles synced'), 'success')
+    // pre-parse templates
+    preParseTemplate(articleTemplate)
+    preParseTemplate(highlightTemplate)
 
+    console.log('Credentials valid, starting article fetch')
+    let page = 1
+    let hasMore = true
+    let totalArticles = 0
+    const itemBatchBlocksMap: Map<string, IBatchBlock[]> = new Map()
+
+    while (hasMore) {
+      console.log(`Fetching page ${page}`)
+      const articles = await client.getArticles(page)
+
+      // Add date format logging after we have the articles
+      if (page === 1 && articles._embedded.items.length > 0) {
+        const sampleDate = DateTime.fromISO(
+          articles._embedded.items[0].created_at,
+          { setZone: true }
+        ).toLocal()
+        console.log('Date format:', {
+          preferredDateFormat,
+          sampleArticleDate: articles._embedded.items[0].created_at,
+          parsedDate: sampleDate.toString(),
+          isValid: sampleDate.isValid,
+          formattedDate: sampleDate.toFormat(preferredDateFormat),
+        })
+      }
+
+      console.log(
+        `Got page ${page}/${articles.pages}, items: ${articles._embedded.items.length}`
+      )
+      totalArticles += articles._embedded.items.length
+
+      for (const article of articles._embedded.items) {
+        if (!isSinglePage) {
+          // create a new page for each article
+          pageName = replaceIllegalChars(
+            renderPageName(article, pageNameTemplate, preferredDateFormat)
+          )
+          targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
+        }
+
+        const itemBatchBlocks = itemBatchBlocksMap.get(targetBlockId) || []
+
+        // Format dates for template rendering
+        const articleWithDates = {
+          ...article,
+          // Format the article date using the created_at field
+          date: DateTime.fromISO(article.created_at).toFormat(
+            preferredDateFormat
+          ),
+          // needed later in the template
+          savedAt: article.created_at,
+          currentDate: DateTime.now().toFormat(preferredDateFormat),
+        }
+
+        // render article using template with formatted dates
+        const renderedItem = renderItem(
+          articleTemplate,
+          articleWithDates,
+          preferredDateFormat
+        )
+
+        // Create content block if syncContent is enabled
+        const children: IBatchBlock[] = []
+        if (syncContent && article.content) {
+          children.push({
+            content: t('### Content'),
+            properties: {
+              collapsed: true,
+            },
+            children: [
+              {
+                content: article.content.replaceAll('#', '\\#'),
+              },
+            ],
+          })
+        }
+
+        // append new article block
+        itemBatchBlocks.unshift({
+          content: renderedItem,
+          children,
+          properties: {
+            id: article.id,
+          },
+        })
+
+        itemBatchBlocksMap.set(targetBlockId, itemBatchBlocks)
+      }
+
+      hasMore = page < articles.pages
+      page++
+    }
+
+    // Insert all blocks
+    for (const [blockId, articleBatch] of itemBatchBlocksMap) {
+      await logseq.Editor.insertBatchBlock(blockId, articleBatch, {
+        before: true,
+        sibling: false,
+      })
+    }
+
+    console.log(`Finished processing ${totalArticles} articles`)
+    logseq.updateSettings({ syncAt: DateTime.local().toFormat(DATE_FORMAT) })
   } catch (e) {
-    console.error('Failed to fetch articles:', e)
-    !inBackground && await logseq.UI.showMsg(t('Failed to sync articles'), 'error')
+    console.error('Error in fetchArticles:', e)
+    !inBackground &&
+      (await logseq.UI.showMsg(t('Failed to sync articles'), 'error'))
   } finally {
-    logseq.updateSettings({ loading: false })
+    console.log('Resetting loading state in finally block')
+    await resetLoadingState()
   }
 }
 
 const testWallabagConnection = async () => {
   const settings = logseq.settings as Settings
-  
-  if (!settings.wallabagUrl || !settings.clientId || !settings.clientSecret || !settings.userLogin || !settings.userPassword) {
-    await logseq.UI.showMsg(t('Please fill in all Wallabag credentials'), 'warning')
+
+  if (
+    !settings.wallabagUrl ||
+    !settings.clientId ||
+    !settings.clientSecret ||
+    !settings.userLogin ||
+    !settings.userPassword
+  ) {
+    await logseq.UI.showMsg(
+      t('Please fill in all Wallabag credentials'),
+      'warning'
+    )
     return
   }
 
   try {
     const client = new WallabagClient(settings)
-    const valid = await client.checkCredentials() 
-    
-    if (valid) {
-      await logseq.UI.showMsg(t('Successfully connected to Wallabag! Version: ') + settings.apiVersion, 'success')
-    } else {
-      await logseq.UI.showMsg(t('Could not connect to Wallabag. Please check your credentials.'), 'error')
-    }
+    const valid = await client.checkCredentials()
 
+    if (valid) {
+      await logseq.UI.showMsg(
+        t('Successfully connected to Wallabag! Version: ') +
+          settings.apiVersion,
+        'success'
+      )
+    } else {
+      await logseq.UI.showMsg(
+        t('Could not connect to Wallabag. Please check your credentials.'),
+        'error'
+      )
+    }
   } catch (e) {
     console.error('Failed to test Wallabag connection:', e)
-    await logseq.UI.showMsg(t('Failed to connect to Wallabag. Error: ') + e.message, 'error')
+    await logseq.UI.showMsg(
+      t('Failed to connect to Wallabag. Error: ') + e.message,
+      'error'
+    )
   }
 }
 
@@ -572,9 +747,12 @@ const testWallabagConnection = async () => {
  * @param baseInfo
  */
 const main = async (baseInfo: LSPluginBaseInfo) => {
-  console.log('logseq-omnivore loaded')
+  console.log('logseq-wallabag starting up')
 
-  await l10nSetup({ builtinTranslations: { ja, 'zh-CN': zhCN } }) // logseq-l10n setup (translations)
+  // reset loading state on startup - do this first
+  await resetState()
+
+  await l10nSetup({ builtinTranslations: { ja, 'zh-CN': zhCN } })
 
   logseq.useSettingsSchema(await settingsSchema())
   // update version if needed
@@ -661,7 +839,7 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
     {
       key: 'test-wallabag-connection',
       label: t('Test Wallabag Connection'),
-      keybinding: { binding: 'mod+shift+w' }  // Optional keyboard shortcut
+      keybinding: { binding: 'mod+shift+w' }, // Optional keyboard shortcut
     },
     testWallabagConnection
   )
@@ -678,12 +856,9 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
     }
   `)
 
-  // reset loading state on startup
-  resetState()
-
-  // fetch articles on startup
+  // Change startup fetch to use wallabag instead of omnivore
   if (await isValidCurrentGraph()) {
-    await fetchOmnivore(true)
+    await fetchArticles(true)
   }
 
   // start the sync job

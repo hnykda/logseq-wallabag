@@ -4,6 +4,30 @@ interface WallabagTokenResponse {
   expires_in: number
 }
 
+interface WallabagArticle {
+  id: number
+  title: string
+  url: string
+  content: string
+  created_at: string    // Format: "2024-01-20T15:30:45+0100"
+  updated_at: string    // Format: "2024-01-20T15:30:45+0100"
+  annotations: any[]
+  tags: string[]
+  // Add fields needed for template rendering
+  date?: string        // We'll add this formatted field
+  currentDate?: string // And this one
+}
+
+interface WallabagResponse {
+  _embedded: {
+    items: WallabagArticle[]
+  }
+  page: number
+  limit: number
+  pages: number
+  total: number
+}
+
 export class WallabagClient {
   private baseUrl: string
   private clientId: string
@@ -114,20 +138,42 @@ export class WallabagClient {
     }
   }
 
-  // This will be expanded later to actually fetch articles
-  async getArticles() {
+  async getArticles(page = 1): Promise<WallabagResponse> {
+    console.log(`getArticles called for page ${page}`)
+    
     if (this.isTokenExpired()) {
+      console.log('Token expired, refreshing')
       await this.refreshAccessToken()
     }
 
-    const response = await fetch(`${this.baseUrl}/api/entries.json`, {
+    const url = `${this.baseUrl}/api/entries.json?page=${page}&perPage=30`
+    console.log(`Fetching articles from: ${url}`)
+
+    const response = await fetch(url, {
       headers: await this.getHeaders(this.apiToken)
     })
 
     if (!response.ok) {
+      console.error('Failed to fetch articles:', {
+        status: response.status,
+        statusText: response.statusText
+      })
       throw new Error('Failed to fetch articles')
     }
 
-    return response.json()
+    const data = await response.json()
+    console.log('Response data:', {
+      page: data.page,
+      pages: data.pages,
+      total: data.total,
+      itemCount: data._embedded?.items?.length
+    })
+
+    // Log the first article's full data to see the exact format
+    if (page === 1 && data._embedded?.items?.length > 0) {
+      console.log('Sample article data:', JSON.stringify(data._embedded.items[0], null, 2))
+    }
+
+    return data
   }
 } 

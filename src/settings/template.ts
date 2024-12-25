@@ -116,6 +116,7 @@ const functionMap: FunctionMap = {
 }
 
 const createItemView = (item: Item, preferredDateFormat: string): ItemView => {
+  console.log('item', item)
   const siteName =
     item.siteName || siteNameFromUrl(item.originalArticleUrl || item.url)
   const dateSaved = dateReference(new Date(item.savedAt), preferredDateFormat)

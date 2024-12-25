@@ -211,7 +211,7 @@ const fetchOmnivore = async (inBackground = false) => {
   const contentTitle = t('### Content')
 
   const userConfigs = await logseq.App.getUserConfigs()
-  const preferredDateFormat: string = userConfigs.preferredDateFormat
+  const preferredDateFormat: string = "yyyy-MM-dd" // userConfigs.preferredDateFormat
   const fetchingMsgKey = 'omnivore-fetching'
 
   try {
@@ -582,7 +582,7 @@ const fetchArticles = async (inBackground = false) => {
 
     // Get user date format preference
     const userConfigs = await logseq.App.getUserConfigs()
-    const preferredDateFormat: string = userConfigs.preferredDateFormat
+    const preferredDateFormat: string = "yyyy-MM-dd" // userConfigs.preferredDateFormat
 
     // pre-parse templates
     preParseTemplate(articleTemplate)
@@ -636,9 +636,15 @@ const fetchArticles = async (inBackground = false) => {
           date: DateTime.fromISO(article.created_at).toFormat(
             preferredDateFormat
           ),
-          // needed later in the template
           savedAt: article.created_at,
           currentDate: DateTime.now().toFormat(preferredDateFormat),
+          // Add these fields to match Omnivore format
+          siteName: article.domain_name || '',
+          originalArticleUrl: article.url || '',
+          author: article.authors?.join(', ') || 'unknown',
+          description: article.preview_picture || '',
+          labels: article.tags || [],
+          content: article.content || ''
         }
 
         // render article using template with formatted dates
@@ -658,7 +664,9 @@ const fetchArticles = async (inBackground = false) => {
             },
             children: [
               {
-                content: article.content.replaceAll('#', '\\#'),
+                content: article.content
+                  .replaceAll('#', '\\#')  // Escape headers
+                  .replaceAll(/\n{3,}/g, '\n\n'), // Normalize spacing
               },
             ],
           })
@@ -670,6 +678,11 @@ const fetchArticles = async (inBackground = false) => {
           children,
           properties: {
             id: article.id,
+            collapsed: true,
+            site: article.domain_name || '',
+            author: article.authors?.join(', ') || 'unknown',
+            'date-saved': `[[${DateTime.fromISO(article.created_at)
+              .toFormat('yyyy-MM-dd')}]]`
           },
         })
 

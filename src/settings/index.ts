@@ -165,7 +165,10 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     type: 'string',
     title: t('Enter the template to use for new articles'),
     description: t('The template to use for new articles.'),
-    default: defaultItemTemplate,
+    default: `- [{{{title}}}]({{{url}}})
+      site:: [{{{siteName}}}]({{{url}}})
+      author:: {{{author}}}
+      date-saved:: [[{{{date}}}]]`,
     inputAs: 'textarea',
   },
   {

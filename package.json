@@ -1,16 +1,16 @@
 {
-  "name": "logseq-omnivore",
+  "name": "logseq-wallabag",
   "version": "1.16.5",
-  "description": "Import Omnivore highlights and articles into Logseq.",
+  "description": "Import wallabag highlights and articles into Logseq.",
   "main": "dist/index.html",
   "targets": {
     "main": false
   },
   "default": "dist/index.html",
-  "author": "Omnivore",
+  "author": "wallabag",
   "repository": {
     "type": "git",
-    "url": "https://github.com/omnivore-app/logseq-omnivore"
+    "url": "https://github.com/hnykda/wallabag-logseq-sync"
   },
   "scripts": {
     "dev": "vite dev public --base=./",
@@ -19,8 +19,8 @@
   },
   "license": "MIT",
   "logseq": {
-    "id": "_logseq-omnivore",
-    "title": "Omnivore",
+    "id": "_logseq-wallabag",
+    "title": "wallabag",
     "icon": "./public/icon.png"
   },
   "dependencies": {

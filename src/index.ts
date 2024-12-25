@@ -20,8 +20,6 @@ import {
   renderItem,
   renderPageName,
 } from './settings/template'
-import ja from './translations/ja.json'
-import zhCN from './translations/zh-CN.json'
 import {
   DATE_FORMAT,
   compareHighlightsInFile,
@@ -34,7 +32,7 @@ import {
 } from './util'
 import { WallabagClient } from './api/wallabag'
 import { Item } from '@omnivore-app/api'
-import { WallabagArticle, WallabagResponse, WallabagAnnotation } from './api/wallabag'
+import { WallabagAnnotation } from './api/wallabag'
 
 const isValidCurrentGraph = async (): Promise<boolean> => {
   const settings = logseq.settings as Settings
@@ -212,8 +210,7 @@ const fetchOmnivore = async (inBackground = false) => {
   const highlightsTitle = t('### Highlights')
   const contentTitle = t('### Content')
 
-  const userConfigs = await logseq.App.getUserConfigs()
-  const preferredDateFormat: string = "yyyy-MM-dd" // userConfigs.preferredDateFormat
+  const preferredDateFormat = 'yyyy-MM-dd'
   const fetchingMsgKey = 'omnivore-fetching'
 
   try {
@@ -574,7 +571,7 @@ const fetchArticles = async (inBackground = false) => {
   }
 
   console.log('Setting loading state to true')
-  await logseq.updateSettings({ loading: true })
+  logseq.updateSettings({ loading: true })
 
   const {
     syncAt,
@@ -607,10 +604,7 @@ const fetchArticles = async (inBackground = false) => {
       throw new Error('Invalid Wallabag credentials')
     }
 
-    // Get user date format preference
-    const userConfigs = await logseq.App.getUserConfigs()
-    const preferredDateFormat: string = "yyyy-MM-dd" // userConfigs.preferredDateFormat
-
+    const preferredDateFormat = 'yyyy-MM-dd'
     // pre-parse templates
     preParseTemplate(articleTemplate)
     preParseTemplate(highlightTemplate)
@@ -623,7 +617,7 @@ const fetchArticles = async (inBackground = false) => {
 
     while (hasMore) {
       console.log(`Fetching page ${page}`)
-      const articles = (await client.getArticles(page)) as WallabagResponse
+      const articles = await client.getArticles(page)
 
       // Add date format logging after we have the articles
       if (page === 1 && articles._embedded.items.length > 0) {
@@ -645,11 +639,15 @@ const fetchArticles = async (inBackground = false) => {
       )
       totalArticles += articles._embedded.items.length
 
-      for (const article of articles._embedded.items as WallabagArticle[]) {
+      for (const article of articles._embedded.items) {
         if (!isSinglePage) {
           // create a new page for each article
           pageName = replaceIllegalChars(
-            renderPageName(article as unknown as Item, pageNameTemplate, preferredDateFormat)
+            renderPageName(
+              article as unknown as Item,
+              pageNameTemplate,
+              preferredDateFormat
+            )
           )
           targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
         }
@@ -709,18 +707,16 @@ const fetchArticles = async (inBackground = false) => {
             'id-wallabag': article.id,
             site: article.domain_name || '',
             author: article.authors?.join(', ') || 'unknown',
-            'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat('yyyy-MM-dd')}]]`,
+            'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat(
+              'yyyy-MM-dd'
+            )}]]`,
           }
 
           if (isBlockPropertiesChanged(newProperties, existingProperties)) {
             // Combine the rendered content with explicit properties
-            await logseq.Editor.updateBlock(
-              existingBlock.uuid,
-              renderedItem,
-              {
-                properties: newProperties
-              }
-            )
+            await logseq.Editor.updateBlock(existingBlock.uuid, renderedItem, {
+              properties: newProperties,
+            })
           }
         } else {
           // Create new block with all content
@@ -729,11 +725,13 @@ const fetchArticles = async (inBackground = false) => {
             children.push({
               content: t('### Content'),
               properties: { collapsed: true },
-              children: [{
-                content: article.content
-                  .replaceAll('#', '\\#')
-                  .replaceAll(/\n{3,}/g, '\n\n'),
-              }],
+              children: [
+                {
+                  content: article.content
+                    .replaceAll('#', '\\#')
+                    .replaceAll(/\n{3,}/g, '\n\n'),
+                },
+              ],
             })
           }
 
@@ -741,11 +739,13 @@ const fetchArticles = async (inBackground = false) => {
             const highlightsBlock: IBatchBlock = {
               content: t('### Highlights'),
               properties: { collapsed: true },
-              children: article.annotations.map((annotation: WallabagAnnotation) => ({
-                content: `${annotation.quote}\n${
-                  annotation.text ? `Note: ${annotation.text}` : ''
-                }`,
-              }))
+              children: article.annotations.map(
+                (annotation: WallabagAnnotation) => ({
+                  content: `${annotation.quote}\n${
+                    annotation.text ? `Note: ${annotation.text}` : ''
+                  }`,
+                })
+              ),
             }
             children.push(highlightsBlock)
           }
@@ -758,7 +758,9 @@ const fetchArticles = async (inBackground = false) => {
               collapsed: true,
               site: article.domain_name || '',
               author: article.authors?.join(', ') || 'unknown',
-              'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat('yyyy-MM-dd')}]]`,
+              'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat(
+                'yyyy-MM-dd'
+              )}]]`,
             },
           })
 
@@ -786,7 +788,7 @@ const fetchArticles = async (inBackground = false) => {
       (await logseq.UI.showMsg(t('Failed to sync articles'), 'error'))
   } finally {
     console.log('Resetting loading state in finally block')
-    await resetLoadingState()
+    resetLoadingState()
   }
 }
 
@@ -813,8 +815,8 @@ const testWallabagConnection = async () => {
 
     if (valid) {
       await logseq.UI.showMsg(
-        t('Successfully connected to Wallabag! Version: ') +
-          settings.apiVersion,
+        t('Successfully connected to Wallabag! Version:') +
+          (settings.apiVersion ?? 'unknown'),
         'success'
       )
     } else {
@@ -826,7 +828,7 @@ const testWallabagConnection = async () => {
   } catch (e) {
     console.error('Failed to test Wallabag connection:', e)
     await logseq.UI.showMsg(
-      t('Failed to connect to Wallabag. Error: ') + e.message,
+      t('Failed to connect to Wallabag. Error: ') + (e as Error).message,
       'error'
     )
   }
@@ -840,9 +842,9 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
   console.log('logseq-wallabag starting up')
 
   // reset loading state on startup - do this first
-  await resetState()
+  resetState()
 
-  await l10nSetup({ builtinTranslations: { ja, 'zh-CN': zhCN } })
+  await l10nSetup({ builtinTranslations: {} })
 
   logseq.useSettingsSchema(await settingsSchema())
   // update version if needed
@@ -931,7 +933,11 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
       label: t('Test Wallabag Connection'),
       keybinding: { binding: 'mod+shift+w' }, // Optional keyboard shortcut
     },
-    testWallabagConnection
+    () => {
+      void (async () => {
+        await testWallabagConnection()
+      })()
+    }
   )
 
   logseq.provideStyle(`

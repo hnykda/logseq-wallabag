@@ -1,3 +1,5 @@
+import { Settings } from '../settings'
+
 interface WallabagTokenResponse {
   access_token: string
   refresh_token: string
@@ -23,8 +25,8 @@ export interface WallabagArticle {
   title: string
   url: string
   content: string
-  created_at: string    // Format: "2024-01-20T15:30:45+0100"
-  updated_at: string    // Format: "2024-01-20T15:30:45+0100"
+  created_at: string // Format: "2024-01-20T15:30:45+0100"
+  updated_at: string // Format: "2024-01-20T15:30:45+0100"
   annotations: WallabagAnnotation[]
   tags: string[]
   domain_name?: string
@@ -72,9 +74,9 @@ export class WallabagClient {
     this.expireDate = settings.expireDate
   }
 
-  private async getHeaders(token?: string) {
+  private getHeaders(token?: string) {
     const headers: HeadersInit = {
-      'Accept': 'application/json',
+      Accept: 'application/json',
       'Content-Type': 'application/json',
     }
     if (token) {
@@ -95,13 +97,13 @@ export class WallabagClient {
 
     const response = await fetch(`${this.baseUrl}/oauth/v2/token`, {
       method: 'POST',
-      headers: await this.getHeaders(),
+      headers: this.getHeaders(),
       body: JSON.stringify({
         grant_type: 'refresh_token',
         refresh_token: this.refreshToken,
         client_id: this.clientId,
-        client_secret: this.clientSecret
-      })
+        client_secret: this.clientSecret,
+      }),
     })
 
     if (!response.ok) {
@@ -109,28 +111,28 @@ export class WallabagClient {
       return
     }
 
-    const data = await response.json() as WallabagTokenResponse
+    const data = (await response.json()) as WallabagTokenResponse
     this.updateTokens(data)
   }
 
   private async getNewAccessToken(): Promise<void> {
     const response = await fetch(`${this.baseUrl}/oauth/v2/token`, {
       method: 'POST',
-      headers: await this.getHeaders(),
+      headers: this.getHeaders(),
       body: JSON.stringify({
         grant_type: 'password',
         client_id: this.clientId,
         client_secret: this.clientSecret,
         username: this.userLogin,
-        password: this.userPassword
-      })
+        password: this.userPassword,
+      }),
     })
 
     if (!response.ok) {
       throw new Error('Failed to get access token')
     }
 
-    const data = await response.json() as WallabagTokenResponse
+    const data = (await response.json()) as WallabagTokenResponse
     this.updateTokens(data)
   }
 
@@ -144,7 +146,7 @@ export class WallabagClient {
       apiToken: this.apiToken,
       refreshToken: this.refreshToken,
       expireDate: this.expireDate,
-      isTokenExpired: false
+      isTokenExpired: false,
     })
   }
 
@@ -163,7 +165,7 @@ export class WallabagClient {
 
   async getArticles(page = 1): Promise<WallabagResponse> {
     console.log(`getArticles called for page ${page}`)
-    
+
     if (this.isTokenExpired()) {
       console.log('Token expired, refreshing')
       await this.refreshAccessToken()
@@ -173,30 +175,33 @@ export class WallabagClient {
     console.log(`Fetching articles from: ${url}`)
 
     const response = await fetch(url, {
-      headers: await this.getHeaders(this.apiToken)
+      headers: this.getHeaders(this.apiToken),
     })
 
     if (!response.ok) {
       console.error('Failed to fetch articles:', {
         status: response.status,
-        statusText: response.statusText
+        statusText: response.statusText,
       })
       throw new Error('Failed to fetch articles')
     }
 
-    const data = await response.json()
-    console.log('Response data:', {
+    const data = (await response.json()) as WallabagResponse
+    console.debug('Response data:', {
       page: data.page,
       pages: data.pages,
       total: data.total,
-      itemCount: data._embedded?.items?.length
+      itemCount: data._embedded?.items?.length,
     })
 
     // Log the first article's full data to see the exact format
     if (page === 1 && data._embedded?.items?.length > 0) {
-      console.log('Sample article data:', JSON.stringify(data._embedded.items[0], null, 2))
+      console.debug(
+        'Sample article data:',
+        JSON.stringify(data._embedded.items[0], null, 2)
+      )
     }
 
     return data
   }
-} 
+}

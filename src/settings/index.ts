@@ -1,6 +1,6 @@
 import { SettingSchemaDesc } from '@logseq/libs/dist/LSPlugin.user'
 import { t } from 'logseq-l10n'
-import { defaultHighlightTemplate, defaultItemTemplate } from './template'
+import { defaultHighlightTemplate } from './template'
 
 export enum Filter {
   ALL = 'import all my articles',
@@ -102,12 +102,11 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     title: t('User Password'),
     description: t('Your Wallabag password'),
     default: '',
-    inputAs: 'password',
   },
   {
     key: 'filter',
     type: 'enum',
-    title: t('Select an Omnivore search filter type'),
+    title: t('Select an Wallabag search filter type'),
     description: t('All articles or just highlights'),
     default: Filter.HIGHLIGHTS.toString(),
     enumPicker: 'select',
@@ -117,11 +116,9 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     key: 'customQuery',
     type: 'string',
     title: t(
-      'Enter an Omnivore custom search query if advanced filter is selected'
+      'Enter an Wallabag custom search query if advanced filter is selected'
     ),
-    description: t(
-      'See https://docs.omnivore.app/using/search.html for more info on search query syntax'
-    ),
+    description: t('TODO - not implemented yet'),
     default: '',
   },
   {
@@ -156,9 +153,7 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     type: 'heading',
     title: '',
     default: '',
-    description: t(
-      '[> Refer to this doc for more info](https://docs.omnivore.app/integrations/logseq.html#controlling-the-layout-of-the-data-imported-to-logseq) [> Variables available could be found here](https://docs.omnivore.app/integrations/logseq.html#variables-available-to-the-highlight-template)'
-    ),
+    description: t('TODO - not implemented yet'),
   },
   {
     key: 'articleTemplate',
@@ -199,7 +194,7 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
   {
     key: 'frequency',
     type: 'number',
-    title: t('Enter sync with Omnivore frequency'),
+    title: t('Enter sync with Wallabag frequency'),
     description: t('In minutes here or 0 to disable'),
     default: 60,
   },
@@ -208,7 +203,7 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     type: 'string',
     title: t('Last Sync'),
     description: t(
-      'The last time Omnivore was synced. Clear this value to completely refresh the sync.'
+      'The last time Wallabag was synced. Clear this value to completely refresh the sync.'
     ),
     default: '',
     inputAs: 'datetime-local',
@@ -216,7 +211,7 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
   {
     key: 'graph',
     type: 'string',
-    title: t('Enter the graph to sync Omnivore articles to'),
+    title: t('Enter the graph to sync Wallabag articles to'),
     description: '',
     // default is the current graph
     default: (await logseq.App.getCurrentGraph())?.name as string,
@@ -224,9 +219,9 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
   {
     key: 'pageName',
     type: 'string',
-    title: t('Enter the page name to sync with Omnivore'),
+    title: t('Enter the page name to sync with Wallabag'),
     description: t('This page will be created if it does not exist.'),
-    default: 'Omnivore',
+    default: 'Wallabag',
   },
   {
     key: 'headingBlockTitle',
@@ -238,14 +233,5 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
       'This heading block will be created if it does not exist. Default is "## 🔖 Articles". Leave blank to not create a heading block.'
     ),
     default: '## 🔖 Articles',
-  },
-  {
-    key: 'endpoint',
-    type: 'string',
-    title: t('API Endpoint'),
-    description: t(
-      "Enter the Omnivore server's API endpoint here (default: https://api-prod.omnivore.app/api/graphql )"
-    ),
-    default: 'https://api-prod.omnivore.app/api/graphql',
   },
 ]

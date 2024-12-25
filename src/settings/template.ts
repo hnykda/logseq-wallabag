@@ -61,6 +61,7 @@ enum ItemState {
 
 export const defaultItemTemplate = `[{{{title}}}]({{{omnivoreUrl}}})
 collapsed:: true
+id-wallabag:: {{{id}}}
 site:: {{#siteName}}[{{{siteName}}}]{{/siteName}}({{{originalUrl}}})
 {{#author}}
 author:: {{{author}}}
@@ -142,9 +143,9 @@ const createItemView = (item: Item, preferredDateFormat: string): ItemView => {
   return {
     id: item.id,
     title: item.title,
-    omnivoreUrl: `https://omnivore.app/me/${item.slug}`,
+    omnivoreUrl: item.url, // todo fetch wallabag url from settings instead and do something like ${{wallabagUrl}}/entries/${item.id}
     siteName,
-    originalUrl: item.originalArticleUrl || '',
+    originalUrl: item.url || '',
     author: item.author || 'unknown',
     labels: item.labels || [],
     dateSaved,

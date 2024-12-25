@@ -168,7 +168,8 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     default: `- [{{{title}}}]({{{url}}})
       site:: [{{{siteName}}}]({{{url}}})
       author:: {{{author}}}
-      date-saved:: [[{{{date}}}]]`,
+      date-saved:: [[{{{date}}}]]
+      id-wallabag:: {{{id}}}`,
     inputAs: 'textarea',
   },
   {

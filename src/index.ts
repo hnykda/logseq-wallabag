@@ -511,6 +511,31 @@ const fetchOmnivore = async (inBackground = false) => {
   }
 }
 
+const getBlockByWallabagId = async (
+  pageName: string,
+  parentBlockId: string,
+  wallabagId: number
+): Promise<BlockEntity | undefined> => {
+  const blocks = (
+    await logseq.DB.datascriptQuery<BlockEntity[]>(
+      `[:find (pull ?b [*])
+            :where
+              [?b :block/page ?p]
+              [?p :block/original-name "${escapeQuotes(pageName)}"]
+              [?b :block/parent ?parent]
+              [?parent :block/uuid ?u]
+              [(str ?u) ?s]
+              [(= ?s "${parentBlockId}")]
+              [?b :block/properties ?props]
+              [(get ?props :id-wallabag) ?wid]
+              [(= ?wid ${wallabagId})]
+      ]`
+    )
+  ).flat()
+
+  return blocks[0]
+}
+
 const fetchArticles = async (inBackground = false) => {
   const settings = logseq.settings as Settings
 
@@ -629,9 +654,16 @@ const fetchArticles = async (inBackground = false) => {
           targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
         }
 
+        // Check for existing article block by Wallabag ID
+        const existingBlock = await getBlockByWallabagId(
+          pageName,
+          targetBlockId,
+          article.id
+        )
+
         const itemBatchBlocks = itemBatchBlocksMap.get(targetBlockId) || []
 
-        // Format dates for template rendering
+        // Format dates and prepare article data as before
         const articleWithDates = {
           ...article,
           // Format the article date using the created_at field
@@ -661,63 +693,77 @@ const fetchArticles = async (inBackground = false) => {
           layout: 'article',
           pageId: article.id.toString(),
           shortId: article.id.toString(),
+          id: article.id,
         } as unknown as Item
 
-        // render article using template with formatted dates
         const renderedItem = renderItem(
           articleTemplate,
           articleWithDates,
           preferredDateFormat
         )
 
-        // Create content block if syncContent is enabled
-        const children: IBatchBlock[] = []
-        if (syncContent && article.content) {
-          children.push({
-            content: t('### Content'),
-            properties: {
-              collapsed: true,
-            },
-            children: [
-              {
-                content: article.content
-                  .replaceAll('#', '\\#')  // Escape headers
-                  .replaceAll(/\n{3,}/g, '\n\n'), // Normalize spacing
-              },
-            ],
-          })
-        }
-
-        // Process annotations if they exist
-        if (article.annotations?.length > 0) {
-          const highlightsBlock: IBatchBlock = {
-            content: t('### Highlights'),
-            properties: {
-              collapsed: true,
-            },
-            children: article.annotations.map((annotation: WallabagAnnotation) => ({
-              content: `${annotation.quote}\n${
-                annotation.text ? `Note: ${annotation.text}` : ''
-              }`,
-            }))
-          }
-          children.push(highlightsBlock)
-        }
-
-        // append new article block
-        itemBatchBlocks.unshift({
-          content: renderedItem,
-          children,
-          properties: {
-            id: article.id,
-            collapsed: true,
+        if (existingBlock) {
+          // Update existing block if properties have changed
+          const existingProperties = existingBlock.properties
+          const newProperties = {
+            'id-wallabag': article.id,
             site: article.domain_name || '',
             author: article.authors?.join(', ') || 'unknown',
             'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat('yyyy-MM-dd')}]]`,
-          },
-        })
+          }
 
-        itemBatchBlocksMap.set(targetBlockId, itemBatchBlocks)
+          if (isBlockPropertiesChanged(newProperties, existingProperties)) {
+            // Combine the rendered content with explicit properties
+            await logseq.Editor.updateBlock(
+              existingBlock.uuid,
+              renderedItem,
+              {
+                properties: newProperties
+              }
+            )
+          }
+        } else {
+          // Create new block with all content
+          const children: IBatchBlock[] = []
+          if (syncContent && article.content) {
+            children.push({
+              content: t('### Content'),
+              properties: { collapsed: true },
+              children: [{
+                content: article.content
+                  .replaceAll('#', '\\#')
+                  .replaceAll(/\n{3,}/g, '\n\n'),
+              }],
+            })
+          }
+
+          if (article.annotations?.length > 0) {
+            const highlightsBlock: IBatchBlock = {
+              content: t('### Highlights'),
+              properties: { collapsed: true },
+              children: article.annotations.map((annotation: WallabagAnnotation) => ({
+                content: `${annotation.quote}\n${
+                  annotation.text ? `Note: ${annotation.text}` : ''
+                }`,
+              }))
+            }
+            children.push(highlightsBlock)
+          }
+
+          itemBatchBlocks.unshift({
+            content: renderedItem,
+            children,
+            properties: {
+              'id-wallabag': article.id,
+              collapsed: true,
+              site: article.domain_name || '',
+              author: article.authors?.join(', ') || 'unknown',
+              'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat('yyyy-MM-dd')}]]`,
+            },
+          })
+
+          itemBatchBlocksMap.set(targetBlockId, itemBatchBlocks)
+        }
       }
 
       hasMore = page < articles.pages

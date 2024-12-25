@@ -32,6 +32,16 @@ export interface Settings {
   version: string
   headingBlockTitle: string
   syncContent: boolean
+  wallabagUrl: string
+  clientId: string
+  clientSecret: string
+  userLogin: string
+  userPassword: string
+  apiToken?: string
+  refreshToken?: string
+  expireDate?: number
+  apiVersion?: string
+  isTokenExpired?: boolean
 }
 
 export const getQueryFromFilter = (
@@ -59,11 +69,40 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     description: '',
   },
   {
-    key: 'apiKey',
+    key: 'wallabagUrl',
     type: 'string',
-    title: t('Enter your Omnivore Api Key'),
-    description: t('Create an API key at https://omnivore.app/settings/api'),
+    title: t('Wallabag URL'),
+    description: t('Your Wallabag instance URL (e.g. https://app.wallabag.it)'),
     default: '',
+  },
+  {
+    key: 'clientId',
+    type: 'string',
+    title: t('Client ID'),
+    description: t('Find your credentials in your Wallabag developer settings'),
+    default: '',
+  },
+  {
+    key: 'clientSecret',
+    type: 'string',
+    title: t('Client Secret'),
+    description: t('Find your credentials in your Wallabag developer settings'),
+    default: '',
+  },
+  {
+    key: 'userLogin',
+    type: 'string',
+    title: t('User Login'),
+    description: t('Your Wallabag username'),
+    default: '',
+  },
+  {
+    key: 'userPassword',
+    type: 'string',
+    title: t('User Password'),
+    description: t('Your Wallabag password'),
+    default: '',
+    inputAs: 'password',
   },
   {
     key: 'filter',

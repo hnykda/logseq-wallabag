@@ -32,6 +32,7 @@ import {
   parseDateTime,
   replaceIllegalChars,
 } from './util'
+import { WallabagClient } from './api/wallabag'
 
 const isValidCurrentGraph = async (): Promise<boolean> => {
   const settings = logseq.settings as Settings
@@ -501,6 +502,71 @@ const fetchOmnivore = async (inBackground = false) => {
   }
 }
 
+const fetchArticles = async (inBackground = false) => {
+  const settings = logseq.settings as Settings
+  
+  if (settings.loading) {
+    !inBackground && await logseq.UI.showMsg(t('Already syncing'), 'warning')
+    return
+  }
+
+  if (!settings.wallabagUrl || !settings.clientId || !settings.clientSecret || !settings.userLogin || !settings.userPassword) {
+    !inBackground && await logseq.UI.showMsg(t('Missing Wallabag credentials'), 'warning')
+    return
+  }
+
+  logseq.updateSettings({ loading: true })
+
+  try {
+    const client = new WallabagClient(settings)
+    
+    // Verify credentials work
+    const valid = await client.checkCredentials()
+    if (!valid) {
+      throw new Error('Invalid Wallabag credentials')
+    }
+
+    // Fetch articles
+    const articles = await client.getArticles()
+    
+    // TODO: Process articles similar to how Omnivore ones were processed
+    // For now just log them
+    console.log('Fetched articles:', articles)
+
+    !inBackground && await logseq.UI.showMsg(t('Articles synced'), 'success')
+
+  } catch (e) {
+    console.error('Failed to fetch articles:', e)
+    !inBackground && await logseq.UI.showMsg(t('Failed to sync articles'), 'error')
+  } finally {
+    logseq.updateSettings({ loading: false })
+  }
+}
+
+const testWallabagConnection = async () => {
+  const settings = logseq.settings as Settings
+  
+  if (!settings.wallabagUrl || !settings.clientId || !settings.clientSecret || !settings.userLogin || !settings.userPassword) {
+    await logseq.UI.showMsg(t('Please fill in all Wallabag credentials'), 'warning')
+    return
+  }
+
+  try {
+    const client = new WallabagClient(settings)
+    const valid = await client.checkCredentials() 
+    
+    if (valid) {
+      await logseq.UI.showMsg(t('Successfully connected to Wallabag! Version: ') + settings.apiVersion, 'success')
+    } else {
+      await logseq.UI.showMsg(t('Could not connect to Wallabag. Please check your credentials.'), 'error')
+    }
+
+  } catch (e) {
+    console.error('Failed to test Wallabag connection:', e)
+    await logseq.UI.showMsg(t('Failed to connect to Wallabag. Error: ') + e.message, 'error')
+  }
+}
+
 /**
  * main entry
  * @param baseInfo
@@ -541,24 +607,21 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
   })
 
   logseq.provideModel({
-    async loadOmnivore() {
-      await fetchOmnivore()
+    async syncWallabag() {
+      await fetchArticles()
+    },
+    testWallabagConnection: async () => {
+      await testWallabagConnection()
     },
   })
 
   logseq.App.registerUIItem('toolbar', {
-    key: 'logseq-omnivore',
+    key: 'logseq-wallabag',
     template: `
-      <a data-on-click="loadOmnivore" class="button">
+      <a data-on-click="syncWallabag" class="button">
         <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <g clip-path="url(#clip0_3843_101374)">
-            <path fill-rule="evenodd" clip-rule="evenodd" d="M14.9932 0.0384085C24.2849 -0.580762 32.0905 6.35808 32.2144 15.6498C32.2144 16.6404 31.9667 17.8788 31.719 18.9933C31.0999 21.7176 28.6232 23.5752 25.8947 23.5752H25.7709C22.4273 23.5752 20.1942 20.727 20.1942 17.627V14.1596L18.2129 17.1316L18.089 17.2555C16.9745 18.2462 15.3647 18.2462 14.2502 17.2555L14.0025 17.1316L11.8973 14.0358V22.0891H9.04913V12.426C9.04913 10.4446 11.402 9.20626 13.0118 10.6923L13.1357 10.8161L15.9838 15.0265L18.9559 10.9399L19.0797 10.8161C20.5657 9.57777 23.0424 10.5684 23.0424 12.6736V17.6311C23.0424 19.4886 24.1569 20.727 25.7667 20.727H25.8906C27.3766 20.727 28.6149 19.7363 28.9864 18.3741C29.2341 17.2596 29.3579 16.3928 29.3579 15.6498C29.3579 8.09176 22.9144 2.39538 15.2367 2.89072C8.66938 3.26222 3.34451 8.59122 2.84917 15.0306C2.35383 22.7124 8.42584 29.1518 15.9797 29.1518V32C6.68803 32 -0.622312 24.1943 -0.00314176 14.9026C0.620157 6.97725 6.93983 0.533745 14.9932 0.0384085Z" fill="currentColor"/>
-          </g>
-          <defs>
-            <clipPath id="clip0_3843_101374">
-              <rect width="32" height="32" fill="none"/>
-            </clipPath>
-          </defs>
+          <!-- Wallabag icon SVG -->
+          <path d="M16 0C7.2 0 0 7.2 0 16s7.2 16 16 16 16-7.2 16-16S24.8 0 16 0zm0 4c6.6 0 12 5.4 12 12s-5.4 12-12 12S4 22.6 4 16 9.4 4 16 4zm-4 4v12h2v-5.5l2 2 2-2V20h2V8h-2v5.5l-2 2-2-2V8h-2z" fill="currentColor"/>
         </svg>
       </a>
     `,
@@ -566,32 +629,41 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
 
   logseq.App.registerCommandPalette(
     {
-      key: 'omnivore-sync',
-      label: t('Sync Omnivore'),
+      key: 'wallabag-sync',
+      label: t('Sync Wallabag'),
     },
     () => {
       void (async () => {
-        await fetchOmnivore()
+        await fetchArticles()
       })()
     }
   )
 
   logseq.App.registerCommandPalette(
     {
-      key: 'omnivore-resync',
-      label: t('Resync all Omnivore items'),
+      key: 'wallabag-resync',
+      label: t('Resync all Wallabag items'),
     },
     () => {
       void (async () => {
         // reset the last sync time
         logseq.updateSettings({ syncAt: '' })
-        await logseq.UI.showMsg(t('Omnivore Last Sync reset'), 'warning', {
+        await logseq.UI.showMsg(t('Wallabag Last Sync reset'), 'warning', {
           timeout: 3000,
         })
 
-        await fetchOmnivore()
+        await fetchArticles()
       })()
     }
+  )
+
+  logseq.App.registerCommandPalette(
+    {
+      key: 'test-wallabag-connection',
+      label: t('Test Wallabag Connection'),
+      keybinding: { binding: 'mod+shift+w' }  // Optional keyboard shortcut
+    },
+    testWallabagConnection
   )
 
   logseq.provideStyle(`

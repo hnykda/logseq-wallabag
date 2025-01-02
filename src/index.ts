@@ -7,31 +7,20 @@ import {
 import { PageEntity } from '@logseq/libs/dist/LSPlugin.user'
 import { setup as l10nSetup, t } from 'logseq-l10n' //https://github.com/sethyuan/logseq-l10n
 import { DateTime } from 'luxon'
-import { getDeletedOmnivoreItems, getOmnivoreItems } from './api'
+import { Settings, settingsSchema } from './settings'
 import {
-  HighlightOrder,
-  Settings,
-  getQueryFromFilter,
-  settingsSchema,
-} from './settings'
-import {
+  defaultArticleTemplate,
+  defaultHighlightTemplate,
   preParseTemplate,
-  renderHighlightContent,
   renderItem,
-  renderPageName,
 } from './settings/template'
 import {
   DATE_FORMAT,
-  compareHighlightsInFile,
+  dateReference,
   escapeQuotes,
-  getHighlightLocation,
   isBlockPropertiesChanged,
-  parseBlockProperties,
-  parseDateTime,
-  replaceIllegalChars,
 } from './util'
 import { WallabagClient } from './api/wallabag'
-import { Item } from '@omnivore-app/api'
 import { WallabagAnnotation } from './api/wallabag'
 
 const isValidCurrentGraph = async (): Promise<boolean> => {
@@ -41,6 +30,24 @@ const isValidCurrentGraph = async (): Promise<boolean> => {
   return currentGraph?.name === settings.graph
 }
 
+export type SimplifiedItem = {
+  id: number
+  title: string
+  domainName: string | null
+  originalArticleUrl: string | null
+  publishedBy: string | null
+  publishedAt: Date | null
+  savedAt: Date
+  savedAtFormatted: string
+  publishedAtFormatted: string | null
+  isArchived: boolean
+  content: string | null
+  wallabagId: number
+  readingTime: number
+  previewPicture: string | null
+  annotations: WallabagAnnotation[]
+}
+
 const startSyncJob = () => {
   const settings = logseq.settings as Settings
   // sync every frequency minutes
@@ -48,7 +55,7 @@ const startSyncJob = () => {
     const intervalId = setInterval(
       async () => {
         if (await isValidCurrentGraph()) {
-          await fetchOmnivore(true)
+          await fetchArticles(true)
         }
       },
       settings.frequency * 1000 * 60,
@@ -72,7 +79,9 @@ const resetLoadingState = () => {
 const resetSyncJob = () => {
   console.log('reset sync job')
   const settings = logseq.settings as Settings
-  settings.syncJobId > 0 && clearInterval(settings.syncJobId)
+  if (settings.syncJobId && settings.syncJobId > 0) {
+    clearInterval(settings.syncJobId)
+  }
   logseq.updateSettings({ syncJobId: 0 })
 }
 
@@ -106,33 +115,33 @@ const getBlockByContent = async (
   return blocks[0]
 }
 
-const getOmnivorePage = async (pageName: string): Promise<PageEntity> => {
-  const omnivorePage = await logseq.Editor.getPage(pageName)
-  if (omnivorePage) {
-    return omnivorePage
+const getTargetPage = async (pageName: string): Promise<PageEntity> => {
+  const targetPage = await logseq.Editor.getPage(pageName)
+  if (targetPage) {
+    return targetPage
   }
 
-  const newOmnivorePage = await logseq.Editor.createPage(pageName, undefined, {
+  const newTargetPage = await logseq.Editor.createPage(pageName, undefined, {
     createFirstBlock: false,
   })
-  if (!newOmnivorePage) {
+  if (!newTargetPage) {
     await logseq.UI.showMsg(
       t(
-        'Failed to create Omnivore page. Please check the pageName in the settings'
+        'Failed to create Target page. Please check the pageName in the settings'
       ),
       'error'
     )
-    throw new Error('Failed to create Omnivore page')
+    throw new Error('Failed to create Target page')
   }
 
-  return newOmnivorePage
+  return newTargetPage
 }
 
-const getOmnivoreBlockIdentity = async (
+const getTargetBlockIdentity = async (
   pageName: string,
   title: string
 ): Promise<string> => {
-  const page = await getOmnivorePage(pageName)
+  const page = await getTargetPage(pageName)
   if (!title) {
     // return the page uuid if no title is provided
     return page.uuid
@@ -147,365 +156,11 @@ const getOmnivoreBlockIdentity = async (
     title
   )
   if (!newTargetBlock) {
-    await logseq.UI.showMsg(t('Failed to create Omnivore block'), 'error')
+    await logseq.UI.showMsg(t('Failed to create Target block'), 'error')
     throw new Error('Failed to create block')
   }
 
   return newTargetBlock.uuid
-}
-
-const fetchOmnivore = async (inBackground = false) => {
-  const {
-    syncAt,
-    apiKey,
-    filter,
-    customQuery,
-    highlightOrder,
-    pageName: pageNameTemplate,
-    articleTemplate,
-    highlightTemplate,
-    graph,
-    loading,
-    endpoint,
-    isSinglePage,
-    headingBlockTitle,
-    syncContent,
-  } = logseq.settings as Settings
-  // prevent multiple fetches
-  if (loading) {
-    await logseq.UI.showMsg(t('Omnivore is already syncing'), 'warning', {
-      timeout: 3000,
-    })
-    return
-  }
-  logseq.updateSettings({ loading: true })
-
-  if (!apiKey) {
-    await logseq.UI.showMsg(t('Missing Omnivore api key'), 'warning', {
-      timeout: 3000,
-    }).then(() => {
-      logseq.showSettingsUI()
-      setTimeout(async function () {
-        await logseq.App.openExternalLink('https://omnivore.app/settings/api')
-      }, 3000)
-    })
-    return
-  }
-
-  if (!(await isValidCurrentGraph())) {
-    await logseq.UI.showMsg(
-      t('Omnivore is configured to sync into your "') +
-        graph +
-        t('" graph which is not currently active.\nPlease switch to graph "') +
-        graph +
-        t('" to sync Omnivore items.'),
-      'error'
-    )
-
-    return
-  }
-
-  const blockTitle = t(headingBlockTitle)
-  const fetchingTitle = t('🚀 Fetching items ...')
-  const highlightsTitle = t('### Highlights')
-  const contentTitle = t('### Content')
-
-  const preferredDateFormat = 'yyyy-MM-dd'
-  const fetchingMsgKey = 'omnivore-fetching'
-
-  try {
-    console.log(`logseq-omnivore starting sync since: '${syncAt}`)
-    !inBackground &&
-      (await logseq.UI.showMsg(fetchingTitle, 'success', {
-        key: fetchingMsgKey,
-      }))
-
-    let targetBlockId = ''
-    let pageName = ''
-
-    if (isSinglePage) {
-      // create a single page for all items
-      pageName = pageNameTemplate
-      targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
-      !inBackground && logseq.App.pushState('page', { name: pageName })
-    }
-
-    // pre-parse templates
-    preParseTemplate(articleTemplate)
-    preParseTemplate(highlightTemplate)
-
-    const size = 15
-    for (let after = 0; ; after += size) {
-      const [items, hasNextPage] = await getOmnivoreItems(
-        apiKey,
-        after,
-        size,
-        parseDateTime(syncAt).toISO(),
-        getQueryFromFilter(filter, customQuery),
-        syncContent,
-        'highlightedMarkdown',
-        endpoint
-      )
-      const itemBatchBlocksMap: Map<string, IBatchBlock[]> = new Map()
-      for (const item of items) {
-        if (!isSinglePage) {
-          // create a new page for each article
-          pageName = replaceIllegalChars(
-            renderPageName(item, pageNameTemplate, preferredDateFormat)
-          )
-          targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
-        }
-        const itemBatchBlocks = itemBatchBlocksMap.get(targetBlockId) || []
-        // render article
-        const renderedItem = renderItem(
-          articleTemplate,
-          item,
-          preferredDateFormat
-        )
-
-        // escape # to prevent creating subpages
-        const articleContent = item.content?.replaceAll('#', '\\#') || ''
-        // create original content title block
-        const contentBlock: IBatchBlock = {
-          content: contentTitle,
-          properties: {
-            collapsed: true,
-          },
-          children: [
-            {
-              content: articleContent,
-            },
-          ],
-        }
-        // filter out notes and redactions
-        const highlights = item.highlights?.filter(
-          (h) => h.type === 'HIGHLIGHT'
-        )
-        // sort highlights by location if selected in options
-        if (highlightOrder === HighlightOrder.LOCATION) {
-          highlights?.sort((a, b) => {
-            try {
-              if (item.pageType === 'FILE') {
-                // sort by location in file
-                return compareHighlightsInFile(a, b)
-              }
-              // for web page, sort by location in the page
-              return (
-                getHighlightLocation(a.patch) - getHighlightLocation(b.patch)
-              )
-            } catch (e) {
-              console.error(e)
-              return compareHighlightsInFile(a, b)
-            }
-          })
-        }
-        const highlightBatchBlocks: IBatchBlock[] =
-          highlights?.map((it) => {
-            // Render highlight content string based on highlight template
-            const content = renderHighlightContent(
-              highlightTemplate,
-              it,
-              item,
-              preferredDateFormat
-            )
-            return {
-              content,
-              properties: {
-                id: it.id,
-              },
-            }
-          }) || []
-
-        // create highlight title block
-        const highlightsBlock: IBatchBlock = {
-          content: highlightsTitle,
-          children: highlightBatchBlocks,
-          properties: {
-            collapsed: true,
-          },
-        }
-        // update existing article block if article is already in the page
-        const existingItemBlock = await getBlockByContent(
-          pageName,
-          targetBlockId,
-          item.slug
-        )
-        if (existingItemBlock) {
-          const existingItemProperties = existingItemBlock.properties
-          const newItemProperties = parseBlockProperties(renderedItem)
-          // update the existing article block if any of the properties have changed
-          if (
-            isBlockPropertiesChanged(newItemProperties, existingItemProperties)
-          ) {
-            await logseq.Editor.updateBlock(
-              existingItemBlock.uuid,
-              renderedItem
-            )
-          }
-          if (syncContent) {
-            // update existing content block
-            const existingContentBlock = await getBlockByContent(
-              pageName,
-              existingItemBlock.uuid,
-              contentTitle
-            )
-            if (existingContentBlock) {
-              const blockEntity = (
-                await logseq.Editor.getBlock(existingContentBlock.uuid, {
-                  includeChildren: true,
-                })
-              )?.children?.[0] as BlockEntity
-
-              await logseq.Editor.updateBlock(blockEntity.uuid, articleContent)
-            } else {
-              // prepend new content block
-              await logseq.Editor.insertBatchBlock(
-                existingItemBlock.uuid,
-                contentBlock,
-                {
-                  sibling: false,
-                  before: true,
-                }
-              )
-            }
-          }
-          if (highlightBatchBlocks.length > 0) {
-            let parentBlockId = existingItemBlock.uuid
-            // check if highlight title block exists
-            const existingHighlightBlock = await getBlockByContent(
-              pageName,
-              existingItemBlock.uuid,
-              highlightsBlock.content
-            )
-            if (existingHighlightBlock) {
-              parentBlockId = existingHighlightBlock.uuid
-              // append new highlights to existing article block
-              for (const highlight of highlightBatchBlocks) {
-                // check if highlight block exists
-                const existingHighlightsBlock = await getBlockByContent(
-                  pageName,
-                  parentBlockId,
-                  highlight.properties?.id as string
-                )
-                if (existingHighlightsBlock) {
-                  // update existing highlight if content is different
-                  if (existingHighlightsBlock.content !== highlight.content) {
-                    await logseq.Editor.updateBlock(
-                      existingHighlightsBlock.uuid,
-                      highlight.content
-                    )
-                  }
-                } else {
-                  // append new highlights to existing article block
-                  await logseq.Editor.insertBatchBlock(
-                    parentBlockId,
-                    highlight,
-                    {
-                      sibling: false,
-                    }
-                  )
-                }
-              }
-            } else {
-              // append new highlights block
-              await logseq.Editor.insertBatchBlock(
-                existingItemBlock.uuid,
-                highlightsBlock,
-                {
-                  sibling: false,
-                }
-              )
-            }
-          }
-        } else {
-          const children: IBatchBlock[] = []
-
-          // add content block if sync content is selected
-          syncContent && children.push(contentBlock)
-
-          // add highlights block if there are highlights
-          highlightBatchBlocks.length > 0 && children.push(highlightsBlock)
-
-          // append new article block
-          itemBatchBlocks.unshift({
-            content: renderedItem,
-            children,
-            properties: {
-              id: item.id,
-            },
-          })
-          itemBatchBlocksMap.set(targetBlockId, itemBatchBlocks)
-        }
-      }
-
-      for (const [targetBlockId, articleBatch] of itemBatchBlocksMap) {
-        await logseq.Editor.insertBatchBlock(targetBlockId, articleBatch, {
-          before: true,
-          sibling: false,
-        })
-      }
-
-      if (!hasNextPage) {
-        break
-      }
-    }
-    // delete blocks where article has been deleted from omnivore
-    for (let after = 0; ; after += size) {
-      const [deletedItems, hasNextPage] = await getDeletedOmnivoreItems(
-        apiKey,
-        after,
-        size,
-        parseDateTime(syncAt).toISO(),
-        endpoint
-      )
-      for (const deletedItem of deletedItems) {
-        if (!isSinglePage) {
-          pageName = renderPageName(
-            deletedItem,
-            pageNameTemplate,
-            preferredDateFormat
-          )
-
-          // delete page if article is synced to a separate page and page is not a journal
-          const existingPage = await logseq.Editor.getPage(pageName)
-          if (existingPage && !existingPage['journal?']) {
-            await logseq.Editor.deletePage(pageName)
-            continue
-          }
-        } else {
-          targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
-
-          const existingBlock = await getBlockByContent(
-            pageName,
-            targetBlockId,
-            deletedItem.slug
-          )
-
-          if (existingBlock) {
-            await logseq.Editor.removeBlock(existingBlock.uuid)
-          }
-        }
-      }
-
-      if (!hasNextPage) {
-        break
-      }
-    }
-
-    if (!inBackground) {
-      logseq.UI.closeMsg(fetchingMsgKey)
-      await logseq.UI.showMsg(t('🔖 Items fetched'), 'success', {
-        timeout: 2000,
-      })
-    }
-    logseq.updateSettings({ syncAt: DateTime.local().toFormat(DATE_FORMAT) })
-  } catch (e) {
-    !inBackground &&
-      (await logseq.UI.showMsg(t('Failed to fetch items'), 'error'))
-    console.error(e)
-  } finally {
-    resetLoadingState()
-  }
 }
 
 const getBlockByWallabagId = async (
@@ -574,11 +229,7 @@ const fetchArticles = async (inBackground = false) => {
   logseq.updateSettings({ loading: true })
 
   const {
-    syncAt,
     pageName: pageNameTemplate,
-    articleTemplate,
-    highlightTemplate,
-    isSinglePage,
     headingBlockTitle,
     syncContent,
   } = settings
@@ -588,11 +239,9 @@ const fetchArticles = async (inBackground = false) => {
   let pageName = ''
 
   // Initialize these before the try block
-  if (isSinglePage) {
-    pageName = pageNameTemplate
-    targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
-    !inBackground && logseq.App.pushState('page', { name: pageName })
-  }
+  pageName = pageNameTemplate
+  targetBlockId = await getTargetBlockIdentity(pageName, blockTitle)
+  !inBackground && logseq.App.pushState('page', { name: pageName })
 
   try {
     console.log('Creating Wallabag client and checking credentials')
@@ -606,8 +255,8 @@ const fetchArticles = async (inBackground = false) => {
 
     const preferredDateFormat = 'yyyy-MM-dd'
     // pre-parse templates
-    preParseTemplate(articleTemplate)
-    preParseTemplate(highlightTemplate)
+    preParseTemplate(defaultArticleTemplate)
+    preParseTemplate(defaultHighlightTemplate)
 
     console.log('Credentials valid, starting article fetch')
     let page = 1
@@ -639,19 +288,9 @@ const fetchArticles = async (inBackground = false) => {
       )
       totalArticles += articles._embedded.items.length
 
-      for (const article of articles._embedded.items) {
-        if (!isSinglePage) {
-          // create a new page for each article
-          pageName = replaceIllegalChars(
-            renderPageName(
-              article as unknown as Item,
-              pageNameTemplate,
-              preferredDateFormat
-            )
-          )
-          targetBlockId = await getOmnivoreBlockIdentity(pageName, blockTitle)
-        }
+      console.log('sample article', articles._embedded.items[0])
 
+      for (const article of articles._embedded.items) {
         // Check for existing article block by Wallabag ID
         const existingBlock = await getBlockByWallabagId(
           pageName,
@@ -660,56 +299,44 @@ const fetchArticles = async (inBackground = false) => {
         )
 
         const itemBatchBlocks = itemBatchBlocksMap.get(targetBlockId) || []
-
+        const savedAt = new Date(article.created_at)
+        const publishedAt = article.published_at
+          ? new Date(article.published_at)
+          : null
         // Format dates and prepare article data as before
-        const articleWithDates = {
-          ...article,
-          // Format the article date using the created_at field
-          date: DateTime.fromISO(article.created_at).toFormat(
-            preferredDateFormat
-          ),
-          savedAt: article.created_at,
-          currentDate: DateTime.now().toFormat(preferredDateFormat),
-          // Map Wallabag fields to Omnivore format
-          siteName: article.domain_name || '',
-          originalArticleUrl: article.url || '',
-          author: article.authors?.join(', ') || 'unknown',
-          description: article.preview_picture || '',
-          labels: article.tags || [],
+        const processedArticle: SimplifiedItem = {
           content: article.content || '',
-          // Add required Omnivore fields with defaults
-          slug: '',
-          highlights: [],
-          updatedAt: article.updated_at,
-          pageType: 'article',
-          state: 'SUCCEEDED',
-          readingProgressPercent: 0,
-          readingProgressAnchorIndex: 0,
-          isArchived: false,
-          language: 'en',
-          subscription: null,
-          layout: 'article',
-          pageId: article.id.toString(),
-          shortId: article.id.toString(),
+          domainName: article.domain_name || '',
+          originalArticleUrl: article.given_url || article.url || '',
+          wallabagId: article.id,
+          savedAt,
+          publishedAt,
+          savedAtFormatted: dateReference(savedAt, preferredDateFormat),
+          publishedAtFormatted: publishedAt
+            ? dateReference(publishedAt, preferredDateFormat)
+            : null,
+          publishedBy: article.published_by?.join(', ') || '',
+          readingTime: article.reading_time || 0,
+          title: article.title || '',
+          isArchived: article.is_archived === 1,
+          previewPicture: article.preview_picture || '',
+          annotations: article.annotations,
           id: article.id,
-        } as unknown as Item
+        }
 
         const renderedItem = renderItem(
-          articleTemplate,
-          articleWithDates,
-          preferredDateFormat
+          defaultArticleTemplate,
+          processedArticle
         )
 
         if (existingBlock) {
           // Update existing block if properties have changed
           const existingProperties = existingBlock.properties
           const newProperties = {
-            'id-wallabag': article.id,
-            site: article.domain_name || '',
-            author: article.authors?.join(', ') || 'unknown',
-            'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat(
-              'yyyy-MM-dd'
-            )}]]`,
+            'id-wallabag': processedArticle.wallabagId,
+            site: processedArticle.domainName,
+            publishedBy: processedArticle.publishedBy,
+            'date-saved': processedArticle.savedAtFormatted,
           }
 
           if (isBlockPropertiesChanged(newProperties, existingProperties)) {
@@ -721,13 +348,13 @@ const fetchArticles = async (inBackground = false) => {
         } else {
           // Create new block with all content
           const children: IBatchBlock[] = []
-          if (syncContent && article.content) {
+          if (syncContent && processedArticle.content) {
             children.push({
               content: t('### Content'),
               properties: { collapsed: true },
               children: [
                 {
-                  content: article.content
+                  content: processedArticle.content
                     .replaceAll('#', '\\#')
                     .replaceAll(/\n{3,}/g, '\n\n'),
                 },
@@ -735,11 +362,11 @@ const fetchArticles = async (inBackground = false) => {
             })
           }
 
-          if (article.annotations?.length > 0) {
+          if (processedArticle.annotations?.length > 0) {
             const highlightsBlock: IBatchBlock = {
               content: t('### Highlights'),
               properties: { collapsed: true },
-              children: article.annotations.map(
+              children: processedArticle.annotations.map(
                 (annotation: WallabagAnnotation) => ({
                   content: `${annotation.quote}\n${
                     annotation.text ? `Note: ${annotation.text}` : ''
@@ -756,11 +383,9 @@ const fetchArticles = async (inBackground = false) => {
             properties: {
               'id-wallabag': article.id,
               collapsed: true,
-              site: article.domain_name || '',
-              author: article.authors?.join(', ') || 'unknown',
-              'date-saved': `[[${DateTime.fromISO(article.created_at).toFormat(
-                'yyyy-MM-dd'
-              )}]]`,
+              site: processedArticle.domainName,
+              author: processedArticle.publishedBy,
+              'date-saved': processedArticle.savedAtFormatted,
             },
           })
 
@@ -854,12 +479,8 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
     logseq.updateSettings({ version: latestVersion })
     // show release notes
     const releaseNotes = `${t(
-      'Omnivore plugin is upgraded to'
+      'Wallabag plugin is upgraded to'
     )} ${latestVersion}.
-    
-    ${t(
-      "What's new"
-    )}: https://github.com/omnivore-app/logseq-omnivore/blob/main/CHANGELOG.md
     `
     await logseq.UI.showMsg(releaseNotes, 'success', {
       timeout: 10000,
@@ -870,7 +491,9 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
     const newFrequency = newSettings.frequency
     if (newFrequency !== oldSettings.frequency) {
       // remove existing scheduled task and create new one
-      oldSettings.syncJobId > 0 && clearInterval(oldSettings.syncJobId)
+      if (oldSettings.syncJobId && oldSettings.syncJobId > 0) {
+        clearInterval(oldSettings.syncJobId)
+      }
       logseq.updateSettings({ syncJobId: 0 })
       newFrequency > 0 && startSyncJob()
     }
@@ -952,7 +575,6 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
     }
   `)
 
-  // Change startup fetch to use wallabag instead of omnivore
   if (await isValidCurrentGraph()) {
     await fetchArticles(true)
   }

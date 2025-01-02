@@ -3,7 +3,6 @@ import { diff_match_patch } from 'diff-match-patch'
 import { DateTime } from 'luxon'
 import escape from 'markdown-escape'
 import outOfCharacter from 'out-of-character'
-import { Highlight } from '@omnivore-app/api'
 
 export interface HighlightPoint {
   left: number
@@ -36,18 +35,6 @@ export const getHighlightPoint = (patch: string | null): HighlightPoint => {
     return { left: 0, top: 0 }
   }
   return { left: bbox[0], top: bbox[1] }
-}
-
-export const compareHighlightsInFile = (a: Highlight, b: Highlight): number => {
-  // get the position of the highlight in the file
-  const highlightPointA = getHighlightPoint(a.patch)
-  const highlightPointB = getHighlightPoint(b.patch)
-  if (highlightPointA.top === highlightPointB.top) {
-    // if top is same, sort by left
-    return highlightPointA.left - highlightPointB.left
-  }
-  // sort by top
-  return highlightPointA.top - highlightPointB.top
 }
 
 export const markdownEscape = (text: string): string => {

@@ -1,6 +1,5 @@
 import { SettingSchemaDesc } from '@logseq/libs/dist/LSPlugin.user'
 import { t } from 'logseq-l10n'
-import { defaultHighlightTemplate } from './template'
 
 export enum Filter {
   ALL = 'import all my articles',
@@ -14,29 +13,29 @@ export enum HighlightOrder {
 }
 
 export interface Settings {
-  apiKey: string
+  // Logseq internal fields
+  disabled: boolean
+  loading?: boolean
+  syncJobId?: number
+  version?: string
+
+  // Our settings fields
   filter: Filter
   syncAt: string
   frequency: number
   graph: string
   customQuery: string
-  disabled: boolean
   highlightOrder: HighlightOrder
   pageName: string
-  articleTemplate: string
-  highlightTemplate: string
-  loading: boolean
-  syncJobId: number
-  endpoint: string
-  isSinglePage: boolean
-  version: string
-  headingBlockTitle: string
   syncContent: boolean
   wallabagUrl: string
   clientId: string
   clientSecret: string
   userLogin: string
   userPassword: string
+  headingBlockTitle: string
+
+  // Auth-related fields
   apiToken?: string
   refreshToken?: string
   expireDate?: number
@@ -129,51 +128,6 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     default: HighlightOrder.TIME.toString(),
     enumPicker: 'select',
     enumChoices: Object.values(HighlightOrder),
-  },
-  {
-    key: 'isSinglePage',
-    type: 'boolean',
-    title: t('Sync to a single page'),
-    description: t(
-      'Sync all articles to a single page. If this is not selected, each article will be synced to a separate page.'
-    ),
-    default: true,
-  },
-  {
-    key: 'createTemplate',
-    type: 'heading',
-    title: t('Article Template'),
-    default: '',
-    description: t(
-      'If the above item is off, want to sync to a separate page for each article, use the variable `{{id}}`, `{{{title}}}`, `{{{date}}}` or `{{{currentDate}}}` as the page name. For example, `{{{title}}}` will create a page for each article with the title of the article.'
-    ),
-  },
-  {
-    key: 'createTemplateDesc',
-    type: 'heading',
-    title: '',
-    default: '',
-    description: t('TODO - not implemented yet'),
-  },
-  {
-    key: 'articleTemplate',
-    type: 'string',
-    title: t('Enter the template to use for new articles'),
-    description: t('The template to use for new articles.'),
-    default: `- [{{{title}}}]({{{url}}})
-      site:: [{{{siteName}}}]({{{url}}})
-      author:: {{{author}}}
-      date-saved:: [[{{{date}}}]]
-      id-wallabag:: {{{id}}}`,
-    inputAs: 'textarea',
-  },
-  {
-    key: 'highlightTemplate',
-    type: 'string',
-    title: t('Enter the template to use for new highlights'),
-    description: t('The template to use for new highlights.'),
-    default: defaultHighlightTemplate,
-    inputAs: 'textarea',
   },
   {
     key: 'syncContent',

@@ -20,32 +20,53 @@ export interface WallabagAnnotation {
   }[]
 }
 
-export interface WallabagArticle {
+export interface WallabagTag {
   id: number
+  label: string
+  slug: string
+}
+
+export interface WallabagAPIArticle {
+  id: number
+  uid: string | null
   title: string
   url: string
+  hashed_url: string
+  origin_url: string | null
+  given_url: string
+  hashed_given_url: string
+  archived_at: string | null
   content: string
-  created_at: string // Format: "2024-01-20T15:30:45+0100"
-  updated_at: string // Format: "2024-01-20T15:30:45+0100"
+  created_at: string
+  updated_at: string
+  published_at: string | null
+  published_by: string[] | null
+  starred_at: string | null
+  is_archived: 0 | 1
+  is_starred: 0 | 1
+  is_public: boolean
   annotations: WallabagAnnotation[]
-  tags: string[]
-  domain_name?: string
-  preview_picture?: string
-  authors?: string[]
-  // Template rendering fields
-  date?: string
-  currentDate?: string
-  savedAt?: string
-  siteName?: string
-  originalArticleUrl?: string
-  author?: string
-  description?: string
-  labels?: string[]
+  tags: WallabagTag[]
+  domain_name: string | null
+  preview_picture: string | null
+  mimetype: string | null
+  language: string | null
+  reading_time: number
+  http_status: string | null
+  headers: string | null
+  user_name: string
+  user_email: string
+  user_id: number
+  _links: {
+    self: {
+      href: string
+    }
+  }
 }
 
 export interface WallabagResponse {
   _embedded: {
-    items: WallabagArticle[]
+    items: WallabagAPIArticle[]
   }
   page: number
   limit: number

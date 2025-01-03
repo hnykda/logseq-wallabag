@@ -13,7 +13,7 @@
     "url": "https://github.com/hnykda/wallabag-logseq-sync"
   },
   "scripts": {
-    "dev": "vite dev public --base=./",
+    "dev": "vite build --watch --base ./ --sourcemap inline --minify false --outDir ../dist public",
     "build": "vite build public --outDir ../dist --base=./",
     "lint": "eslint --ext .ts src"
   },

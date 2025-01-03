@@ -19,8 +19,8 @@ Currently you won't be able to install the plugin in other way then manually bui
 ## Development
 1. install `pnpm`
 2. install dependencies `pnpm install`
-3. run `pnpm build`
-4. go to logseq, enable developer mode, go to plugins, click `load unpacked` and locate the root repository
-5. set up the plugin
+3. run `pnpm run dev`, build should happen and a new `dist` repository should show up
+4. go to logseq, enable developer mode, go to plugins, click `load unpacked` and locate the root repository (not just the nested `dist` folder)
+5. set up the plugin using the settings
 
-It should pick up the build and as you load it, it should refetch your articles.
+It should pick up the build and as you load it, and it should (re)fetch your articles. If running in a dev mode, all you need to do after a new build is to click the `Reload` button at the logseq Plugins page. 

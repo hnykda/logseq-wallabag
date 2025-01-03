@@ -66,13 +66,9 @@ const startSyncJob = () => {
 }
 
 const resetLoadingState = () => {
-  console.log('resetLoadingState called')
   const settings = logseq.settings as Settings
   if (settings.loading) {
-    console.log('Loading was true, setting to false')
     logseq.updateSettings({ loading: false })
-  } else {
-    console.log('Loading was already false')
   }
 }
 
@@ -90,29 +86,6 @@ const resetState = () => {
   // Force loading to false regardless of current state
   logseq.updateSettings({ loading: false })
   resetSyncJob()
-}
-
-const getBlockByContent = async (
-  pageName: string,
-  parentBlockId: string,
-  content: string
-): Promise<BlockEntity | undefined> => {
-  const blocks = (
-    await logseq.DB.datascriptQuery<BlockEntity[]>(
-      `[:find (pull ?b [*])
-            :where
-              [?b :block/page ?p]
-              [?p :block/original-name "${escapeQuotes(pageName)}"]
-              [?b :block/parent ?parent]
-              [?parent :block/uuid ?u]
-              [(str ?u) ?s]
-              [(= ?s "${parentBlockId}")]
-              [?b :block/content ?c]
-              [(clojure.string/includes? ?c "${escapeQuotes(content)}")]]`
-    )
-  ).flat()
-
-  return blocks[0]
 }
 
 const getTargetPage = async (pageName: string): Promise<PageEntity> => {
@@ -137,30 +110,9 @@ const getTargetPage = async (pageName: string): Promise<PageEntity> => {
   return newTargetPage
 }
 
-const getTargetBlockIdentity = async (
-  pageName: string,
-  title: string
-): Promise<string> => {
+const getTargetBlockIdentity = async (pageName: string): Promise<string> => {
   const page = await getTargetPage(pageName)
-  if (!title) {
-    // return the page uuid if no title is provided
-    return page.uuid
-  }
-
-  const targetBlock = await getBlockByContent(pageName, page.uuid, title)
-  if (targetBlock) {
-    return targetBlock.uuid
-  }
-  const newTargetBlock = await logseq.Editor.prependBlockInPage(
-    page.uuid,
-    title
-  )
-  if (!newTargetBlock) {
-    await logseq.UI.showMsg(t('Failed to create Target block'), 'error')
-    throw new Error('Failed to create block')
-  }
-
-  return newTargetBlock.uuid
+  return page.uuid
 }
 
 const getBlockByWallabagId = async (
@@ -191,7 +143,7 @@ const getBlockByWallabagId = async (
 const fetchArticles = async (inBackground = false) => {
   const settings = logseq.settings as Settings
 
-  console.log('Starting fetchArticles, settings state:', {
+  console.debug('Starting fetchArticles, settings state:', {
     loading: settings.loading,
     inBackground,
     hasUrl: !!settings.wallabagUrl,
@@ -203,7 +155,7 @@ const fetchArticles = async (inBackground = false) => {
 
   // prevent multiple fetches
   if (settings.loading) {
-    console.log('Loading state is true, preventing multiple fetches')
+    console.debug('Loading state is true, preventing multiple fetches')
     await logseq.UI.showMsg(t('Already syncing'), 'warning', {
       timeout: 3000,
     })
@@ -218,33 +170,27 @@ const fetchArticles = async (inBackground = false) => {
     !settings.userLogin ||
     !settings.userPassword
   ) {
-    console.log('Missing credentials, aborting fetch')
+    console.debug('Missing credentials, aborting fetch')
     await logseq.UI.showMsg(t('Missing Wallabag credentials'), 'warning', {
       timeout: 3000,
     })
     return
   }
 
-  console.log('Setting loading state to true')
   logseq.updateSettings({ loading: true })
 
-  const {
-    pageName: pageNameTemplate,
-    headingBlockTitle,
-    syncContent,
-  } = settings
+  const { pageName: pageNameTemplate, syncContent } = settings
 
-  const blockTitle = t(headingBlockTitle)
   let targetBlockId = ''
   let pageName = ''
 
   // Initialize these before the try block
   pageName = pageNameTemplate
-  targetBlockId = await getTargetBlockIdentity(pageName, blockTitle)
+  targetBlockId = await getTargetBlockIdentity(pageName)
   !inBackground && logseq.App.pushState('page', { name: pageName })
 
   try {
-    console.log('Creating Wallabag client and checking credentials')
+    console.debug('Creating Wallabag client and checking credentials')
     const client = new WallabagClient(settings)
     const valid = await client.checkCredentials()
 
@@ -253,50 +199,37 @@ const fetchArticles = async (inBackground = false) => {
       throw new Error('Invalid Wallabag credentials')
     }
 
-    const preferredDateFormat = 'yyyy-MM-dd'
+    const userConfigs = await logseq.App.getUserConfigs()
+    const preferredDateFormat: string = userConfigs.preferredDateFormat
     // pre-parse templates
     preParseTemplate(defaultArticleTemplate)
     preParseTemplate(defaultHighlightTemplate)
 
-    console.log('Credentials valid, starting article fetch')
+    console.debug('Credentials valid, starting article fetch')
     let page = 1
     let hasMore = true
     let totalArticles = 0
     const itemBatchBlocksMap: Map<string, IBatchBlock[]> = new Map()
 
     while (hasMore) {
-      console.log(`Fetching page ${page}`)
       const articles = await client.getArticles(page)
 
-      // Add date format logging after we have the articles
-      if (page === 1 && articles._embedded.items.length > 0) {
-        const sampleDate = DateTime.fromISO(
-          articles._embedded.items[0].created_at,
-          { setZone: true }
-        ).toLocal()
-        console.log('Date format:', {
-          preferredDateFormat,
-          sampleArticleDate: articles._embedded.items[0].created_at,
-          parsedDate: sampleDate.toString(),
-          isValid: sampleDate.isValid,
-          formattedDate: sampleDate.toFormat(preferredDateFormat),
-        })
-      }
-
-      console.log(
+      console.debug(
         `Got page ${page}/${articles.pages}, items: ${articles._embedded.items.length}`
       )
       totalArticles += articles._embedded.items.length
 
-      console.log('sample article', articles._embedded.items[0])
+      console.debug('sample article', articles._embedded.items[0])
 
       for (const article of articles._embedded.items) {
+        console.debug('processing article', article.id)
         // Check for existing article block by Wallabag ID
         const existingBlock = await getBlockByWallabagId(
           pageName,
           targetBlockId,
           article.id
         )
+        console.debug('existing block: ', existingBlock?.uuid)
 
         const itemBatchBlocks = itemBatchBlocksMap.get(targetBlockId) || []
         const savedAt = new Date(article.created_at)
@@ -405,14 +338,13 @@ const fetchArticles = async (inBackground = false) => {
       })
     }
 
-    console.log(`Finished processing ${totalArticles} articles`)
+    console.debug(`Finished processing ${totalArticles} articles`)
     logseq.updateSettings({ syncAt: DateTime.local().toFormat(DATE_FORMAT) })
   } catch (e) {
     console.error('Error in fetchArticles:', e)
     !inBackground &&
       (await logseq.UI.showMsg(t('Failed to sync articles'), 'error'))
   } finally {
-    console.log('Resetting loading state in finally block')
     resetLoadingState()
   }
 }
@@ -522,18 +454,6 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
 
   logseq.App.registerCommandPalette(
     {
-      key: 'wallabag-sync',
-      label: t('Sync Wallabag'),
-    },
-    () => {
-      void (async () => {
-        await fetchArticles()
-      })()
-    }
-  )
-
-  logseq.App.registerCommandPalette(
-    {
       key: 'wallabag-resync',
       label: t('Resync all Wallabag items'),
     },
@@ -541,10 +461,6 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
       void (async () => {
         // reset the last sync time
         logseq.updateSettings({ syncAt: '' })
-        await logseq.UI.showMsg(t('Wallabag Last Sync reset'), 'warning', {
-          timeout: 3000,
-        })
-
         await fetchArticles()
       })()
     }
@@ -554,7 +470,6 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
     {
       key: 'test-wallabag-connection',
       label: t('Test Wallabag Connection'),
-      keybinding: { binding: 'mod+shift+w' }, // Optional keyboard shortcut
     },
     () => {
       void (async () => {
@@ -579,7 +494,6 @@ const main = async (baseInfo: LSPluginBaseInfo) => {
     await fetchArticles(true)
   }
 
-  // start the sync job
   startSyncJob()
 }
 

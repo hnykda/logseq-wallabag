@@ -32,7 +32,7 @@ export const defaultHighlightTemplate = `> {{{text}}} [⤴️]({{{highlightUrl}}
 
 {{#note.length}}note:: {{{note}}}{{/note.length}}`
 
-export const defaultArticleTemplate = `- [{{{title}}}]({{{originalArticleUrl}}})
+export const defaultArticleTemplate = `[{{{title}}}]({{{originalArticleUrl}}})
 site:: [{{{domainName}}}]({{{domainName}}})
 author:: {{{publishedBy}}}
 date-saved:: {{savedAtFormatted}}

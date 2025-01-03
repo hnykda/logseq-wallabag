@@ -185,15 +185,13 @@ export class WallabagClient {
   }
 
   async getArticles(page = 1): Promise<WallabagResponse> {
-    console.log(`getArticles called for page ${page}`)
-
     if (this.isTokenExpired()) {
-      console.log('Token expired, refreshing')
+      console.debug('Token expired, refreshing')
       await this.refreshAccessToken()
     }
 
     const url = `${this.baseUrl}/api/entries.json?page=${page}&perPage=30`
-    console.log(`Fetching articles from: ${url}`)
+    console.debug(`Fetching articles from: ${url}`)
 
     const response = await fetch(url, {
       headers: this.getHeaders(this.apiToken),
@@ -207,22 +205,6 @@ export class WallabagClient {
       throw new Error('Failed to fetch articles')
     }
 
-    const data = (await response.json()) as WallabagResponse
-    console.debug('Response data:', {
-      page: data.page,
-      pages: data.pages,
-      total: data.total,
-      itemCount: data._embedded?.items?.length,
-    })
-
-    // Log the first article's full data to see the exact format
-    if (page === 1 && data._embedded?.items?.length > 0) {
-      console.debug(
-        'Sample article data:',
-        JSON.stringify(data._embedded.items[0], null, 2)
-      )
-    }
-
-    return data
+    return (await response.json()) as WallabagResponse
   }
 }

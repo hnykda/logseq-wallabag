@@ -1,17 +1,6 @@
 import { SettingSchemaDesc } from '@logseq/libs/dist/LSPlugin.user'
 import { t } from 'logseq-l10n'
 
-export enum Filter {
-  ALL = 'import all my articles',
-  HIGHLIGHTS = 'import just highlights',
-  ADVANCED = 'advanced',
-}
-
-export enum HighlightOrder {
-  LOCATION = 'the location of highlights in the article',
-  TIME = 'the time that highlights are updated',
-}
-
 export interface Settings {
   // Logseq internal fields
   disabled: boolean
@@ -20,12 +9,9 @@ export interface Settings {
   version?: string
 
   // Our settings fields
-  filter: Filter
   syncAt: string
   frequency: number
   graph: string
-  customQuery: string
-  highlightOrder: HighlightOrder
   pageName: string
   syncContent: boolean
   wallabagUrl: string
@@ -33,7 +19,6 @@ export interface Settings {
   clientSecret: string
   userLogin: string
   userPassword: string
-  headingBlockTitle: string
 
   // Auth-related fields
   apiToken?: string
@@ -41,22 +26,6 @@ export interface Settings {
   expireDate?: number
   apiVersion?: string
   isTokenExpired?: boolean
-}
-
-export const getQueryFromFilter = (
-  filter: Filter,
-  customQuery: string
-): string => {
-  switch (filter) {
-    case Filter.ALL:
-      return 'in:all'
-    case Filter.HIGHLIGHTS:
-      return `has:highlights in:all`
-    case Filter.ADVANCED:
-      return customQuery
-    default:
-      return ''
-  }
 }
 
 export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
@@ -103,33 +72,6 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     default: '',
   },
   {
-    key: 'filter',
-    type: 'enum',
-    title: t('Select an Wallabag search filter type'),
-    description: t('All articles or just highlights'),
-    default: Filter.HIGHLIGHTS.toString(),
-    enumPicker: 'select',
-    enumChoices: Object.values(Filter),
-  },
-  {
-    key: 'customQuery',
-    type: 'string',
-    title: t(
-      'Enter an Wallabag custom search query if advanced filter is selected'
-    ),
-    description: t('TODO - not implemented yet'),
-    default: '',
-  },
-  {
-    key: 'highlightOrder',
-    type: 'enum',
-    title: t('Order of Highlights'),
-    description: t('Select a way to sort new highlights in your articles'),
-    default: HighlightOrder.TIME.toString(),
-    enumPicker: 'select',
-    enumChoices: Object.values(HighlightOrder),
-  },
-  {
     key: 'syncContent',
     type: 'boolean',
     title: t('Sync article content'),
@@ -137,13 +79,6 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
       'Sync article content into the content block. If this is not selected, only highlights will be synced.'
     ),
     default: false,
-  },
-  {
-    key: 'advancedSettings',
-    type: 'heading',
-    title: t('Advanced Settings'),
-    default: '',
-    description: '',
   },
   {
     key: 'frequency',
@@ -176,16 +111,5 @@ export const settingsSchema = async (): Promise<SettingSchemaDesc[]> => [
     title: t('Enter the page name to sync with Wallabag'),
     description: t('This page will be created if it does not exist.'),
     default: 'Wallabag',
-  },
-  {
-    key: 'headingBlockTitle',
-    type: 'string',
-    title: t(
-      'Enter the title of the heading block to place synced articles under'
-    ),
-    description: t(
-      'This heading block will be created if it does not exist. Default is "## 🔖 Articles". Leave blank to not create a heading block.'
-    ),
-    default: '## 🔖 Articles',
   },
 ]

@@ -24,3 +24,5 @@ Currently you won't be able to install the plugin in other way then manually bui
 5. set up the plugin using the settings
 
 It should pick up the build and as you load it, and it should (re)fetch your articles. If running in a dev mode, all you need to do after a new build is to click the `Reload` button at the logseq Plugins page. 
+
+If you ever see a weird duplication, restart logseq, tehre might be hanging processes.

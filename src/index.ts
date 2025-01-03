@@ -222,14 +222,12 @@ const fetchArticles = async (inBackground = false) => {
       console.debug('sample article', articles._embedded.items[0])
 
       for (const article of articles._embedded.items) {
-        console.debug('processing article', article.id)
         // Check for existing article block by Wallabag ID
         const existingBlock = await getBlockByWallabagId(
           pageName,
           targetBlockId,
           article.id
         )
-        console.debug('existing block: ', existingBlock?.uuid)
 
         const itemBatchBlocks = itemBatchBlocksMap.get(targetBlockId) || []
         const savedAt = new Date(article.created_at)
@@ -263,6 +261,7 @@ const fetchArticles = async (inBackground = false) => {
         )
 
         if (existingBlock) {
+          console.debug('existing block found, updating', existingBlock.uuid)
           // Update existing block if properties have changed
           const existingProperties = existingBlock.properties
           const newProperties = {
@@ -279,6 +278,7 @@ const fetchArticles = async (inBackground = false) => {
             })
           }
         } else {
+          console.debug('no existing block found, creating new')
           // Create new block with all content
           const children: IBatchBlock[] = []
           if (syncContent && processedArticle.content) {
